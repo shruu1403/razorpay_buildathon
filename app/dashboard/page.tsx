@@ -1,8 +1,30 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
+import Navbar from '@/components/Navbar';
+
+import ManualLinkModal from '@/components/ManualLinkModal';
 import { supabase } from '@/lib/supabase';
+import {
+  AlertTriangle,
+  DollarSign,
+  Send,
+  PartyPopper,
+  TrendingUp,
+  RefreshCw,
+  Plus,
+  Search,
+  ExternalLink,
+  Info,
+  CheckCircle2,
+  Clock,
+  Filter,
+  Layers,
+  ArrowUpRight,
+  ShieldAlert,
+  Loader2
+} from 'lucide-react';
 
 interface FailedPayment {
   id: string;
@@ -30,6 +52,11 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
+  
+  // Filter & Search states
+  const [activeFilter, setActiveFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
 
   const fetchPayments = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
@@ -48,7 +75,7 @@ export default function DashboardPage() {
       }
     } catch (err) {
       console.error('[Dashboard] Unexpected error:', err);
-    } finally {
+    } fontally: {
       setLoading(false);
       setRefreshing(false);
     }
@@ -86,6 +113,35 @@ export default function DashboardPage() {
     }
   };
 
+  // Filtered Payments Logic
+  const filteredPayments = useMemo(() => {
+    return payments.filter((p) => {
+      // Category / Status Filter
+      if (activeFilter === 'recovered' && p.status !== 'recovered') return false;
+      if (activeFilter === 'pending' && p.status === 'recovered') return false;
+      if (
+        activeFilter !== 'all' &&
+        activeFilter !== 'recovered' &&
+        activeFilter !== 'pending' &&
+        (p.failure_category || '').toLowerCase() !== activeFilter
+      ) {
+        return false;
+      }
+
+      // Search Query
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const emailMatch = (p.customer_email || '').toLowerCase().includes(q);
+        const contactMatch = (p.customer_contact || '').toLowerCase().includes(q);
+        const payIdMatch = (p.razorpay_payment_id || '').toLowerCase().includes(q);
+        const orderIdMatch = (p.razorpay_order_id || '').toLowerCase().includes(q);
+        return emailMatch || contactMatch || payIdMatch || orderIdMatch;
+      }
+
+      return true;
+    });
+  }, [payments, activeFilter, searchQuery]);
+
   // Summary Stat Calculations
   const totalFailed = payments.length;
   const amountAtRiskPaise = payments
@@ -106,6 +162,26 @@ export default function DashboardPage() {
 
   const recoveryRate = totalFailed > 0 ? (recoveredPayments.length / totalFailed) * 100 : 0;
 
+  // Distribution calculation
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      insufficient_funds: 0,
+      card_expired: 0,
+      payment_method_restricted: 0,
+      network_glitch: 0,
+      other: 0,
+    };
+    payments.forEach((p) => {
+      const cat = (p.failure_category || 'other').toLowerCase();
+      if (counts[cat] !== undefined) {
+        counts[cat]++;
+      } else {
+        counts.other++;
+      }
+    });
+    return counts;
+  }, [payments]);
+
   const formatCurrency = (amountPaise: number, currency: string = 'INR') => {
     const val = (amountPaise || 0) / 100;
     return new Intl.NumberFormat('en-IN', {
@@ -117,10 +193,16 @@ export default function DashboardPage() {
 
   const getCategoryBadge = (category?: string) => {
     const cat = (category || '').toLowerCase();
-    if (cat === 'card_expired' || cat === 'payment_method_restricted') {
+    if (cat === 'card_expired') {
       return {
-        label: cat === 'card_expired' ? 'Card Expired' : 'Method Restricted',
+        label: 'Card Expired',
         className: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
+      };
+    }
+    if (cat === 'payment_method_restricted') {
+      return {
+        label: 'Method Restricted',
+        className: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
       };
     }
     if (cat === 'insufficient_funds') {
@@ -133,6 +215,12 @@ export default function DashboardPage() {
       return {
         label: 'Network Glitch',
         className: 'bg-slate-500/10 text-slate-300 border-slate-700/50',
+      };
+    }
+    if (cat === 'manual_dispatch') {
+      return {
+        label: 'Manual Dispatch',
+        className: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
       };
     }
     return {
@@ -152,6 +240,8 @@ export default function DashboardPage() {
         return 'Payment method blocked — requesting customer switch methods immediately';
       case 'network_glitch':
         return 'Temporary gateway issue — retrying automatically within hours';
+      case 'manual_dispatch':
+        return 'Manually created recovery link by merchant admin';
       default:
         return 'Reviewing manually — sending recovery link as a precaution';
     }
@@ -167,7 +257,7 @@ export default function DashboardPage() {
     }
     if (s === 'retry_scheduled') {
       return {
-        label: 'Retry Scheduled',
+        label: 'Link Sent',
         className: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
       };
     }
@@ -179,7 +269,7 @@ export default function DashboardPage() {
       retryCount > 0
     ) {
       return {
-        label: `Auto-Retrying (attempt ${retryCount}/2)`,
+        label: `Auto-Retrying (${retryCount}/2)`,
         className: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
       };
     }
@@ -190,73 +280,75 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased">
-      {/* Header / Navigation */}
-      <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-600/30">
-              ⚡
-            </div>
-            <div>
-              <h1 className="text-base font-bold text-white tracking-tight">ReviveAI</h1>
-              <p className="text-xs text-slate-400">Payment Recovery Assistant</p>
-            </div>
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased flex flex-col selection:bg-indigo-500 selection:text-white">
+      {/* Shared Sticky Navigation */}
+      <Navbar />
+
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        
+        {/* Page Header Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-6">
+          <div>
+            <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
+              <span>Payment Recovery Dashboard</span>
+            </h1>
+            <p className="text-xs text-slate-400 mt-1">
+              Real-time monitoring of Razorpay payment failures, automated classification, and recovery link dispatches.
+            </p>
           </div>
 
           <div className="flex items-center gap-3">
             <button
               onClick={() => fetchPayments(true)}
               disabled={refreshing}
-              className="px-3 py-1.5 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="px-3 py-2 rounded-xl border border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
-              <svg
-                className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
-              Refresh
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
             </button>
+
+            <button
+              onClick={() => setIsManualModalOpen(true)}
+              className="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 hover:border-slate-600 text-slate-200 text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4 text-indigo-400" />
+              <span>Create Manual Link</span>
+            </button>
+
             <Link
               href="/test-payment"
-              className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/20 transition-all flex items-center gap-1.5"
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/20 transition-all flex items-center gap-1.5"
             >
-              <span>+</span> Simulate Failure
+              <span>+ Simulate Failure</span>
             </Link>
           </div>
         </div>
-      </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Stat Cards Grid (5 columns) */}
         <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           {/* Card 1: Total Failed */}
           <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800/80 shadow-xl space-y-3 relative overflow-hidden group hover:border-slate-700 transition-all">
             <div className="flex items-center justify-between text-slate-400">
-              <span className="text-xs font-semibold uppercase tracking-wider">Total Failed Payments</span>
-              <span className="p-2 rounded-lg bg-rose-500/10 text-rose-400 text-xs">⚠️</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider">Total Failures</span>
+              <div className="p-2 rounded-lg bg-rose-500/10 text-rose-400">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
             </div>
             {loading ? (
               <div className="h-8 w-24 bg-slate-800 rounded animate-pulse" />
             ) : (
               <div className="text-3xl font-extrabold text-white tracking-tight">{totalFailed}</div>
             )}
-            <p className="text-xs text-slate-500">Tracked failure events</p>
+            <p className="text-[11px] text-slate-500">Tracked failure events</p>
           </div>
 
           {/* Card 2: Amount at Risk */}
           <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800/80 shadow-xl space-y-3 relative overflow-hidden group hover:border-slate-700 transition-all">
             <div className="flex items-center justify-between text-slate-400">
-              <span className="text-xs font-semibold uppercase tracking-wider">Amount at Risk</span>
-              <span className="p-2 rounded-lg bg-amber-500/10 text-amber-400 text-xs">💰</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider">Amount at Risk</span>
+              <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400">
+                <DollarSign className="w-4 h-4" />
+              </div>
             </div>
             {loading ? (
               <div className="h-8 w-32 bg-slate-800 rounded animate-pulse" />
@@ -269,28 +361,32 @@ export default function DashboardPage() {
                 }).format(amountAtRisk)}
               </div>
             )}
-            <p className="text-xs text-slate-500">Pending & scheduled</p>
+            <p className="text-[11px] text-slate-500">Pending & scheduled</p>
           </div>
 
           {/* Card 3: Recovery Links Sent */}
           <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800/80 shadow-xl space-y-3 relative overflow-hidden group hover:border-slate-700 transition-all">
             <div className="flex items-center justify-between text-slate-400">
-              <span className="text-xs font-semibold uppercase tracking-wider">Recovery Links Sent</span>
-              <span className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 text-xs">🚀</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider">Links Dispatched</span>
+              <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
+                <Send className="w-4 h-4" />
+              </div>
             </div>
             {loading ? (
               <div className="h-8 w-20 bg-slate-800 rounded animate-pulse" />
             ) : (
               <div className="text-3xl font-extrabold text-indigo-400 tracking-tight">{recoveryLinksSent}</div>
             )}
-            <p className="text-xs text-slate-500">Active recovery URLs</p>
+            <p className="text-[11px] text-slate-500">Active recovery URLs</p>
           </div>
 
           {/* Card 4: Revenue Recovered */}
           <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800/80 shadow-xl space-y-3 relative overflow-hidden group hover:border-slate-700 transition-all">
             <div className="flex items-center justify-between text-slate-400">
-              <span className="text-xs font-semibold uppercase tracking-wider">Revenue Recovered</span>
-              <span className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 text-xs">🎉</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider">Revenue Rescued</span>
+              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+                <PartyPopper className="w-4 h-4" />
+              </div>
             </div>
             {loading ? (
               <div className="h-8 w-32 bg-slate-800 rounded animate-pulse" />
@@ -303,14 +399,16 @@ export default function DashboardPage() {
                 }).format(revenueRecovered)}
               </div>
             )}
-            <p className="text-xs text-slate-500">Completed link payments</p>
+            <p className="text-[11px] text-slate-500">Completed link payments</p>
           </div>
 
           {/* Card 5: Recovery Rate */}
           <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800/80 shadow-xl space-y-3 relative overflow-hidden group hover:border-slate-700 transition-all">
             <div className="flex items-center justify-between text-slate-400">
-              <span className="text-xs font-semibold uppercase tracking-wider">Recovery Rate</span>
-              <span className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400 text-xs">📈</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider">Recovery Rate</span>
+              <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400">
+                <TrendingUp className="w-4 h-4" />
+              </div>
             </div>
             {loading ? (
               <div className="h-8 w-24 bg-slate-800 rounded animate-pulse" />
@@ -319,39 +417,141 @@ export default function DashboardPage() {
                 {recoveryRate.toFixed(1)}%
               </div>
             )}
-            <p className="text-xs text-slate-500">Success percentage</p>
+            <p className="text-[11px] text-slate-500">Success percentage</p>
           </div>
         </section>
 
-        {/* Failed Payments Table */}
-        <section className="bg-slate-900/80 border border-slate-800/80 rounded-2xl shadow-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-800/80 flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-white">Failed Payment Records</h2>
-              <p className="text-xs text-slate-400">View payment failure details and trigger automated recovery links.</p>
+        {/* Visual Category Distribution Bar */}
+        {totalFailed > 0 && (
+          <section className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800/80 shadow-xl space-y-3">
+            <div className="flex items-center justify-between text-xs text-slate-300 font-semibold">
+              <span className="flex items-center gap-1.5">
+                <Layers className="w-4 h-4 text-indigo-400" /> Failure Category Breakdown
+              </span>
+              <span className="text-[11px] text-slate-400 font-normal">
+                Distribution across {totalFailed} failures
+              </span>
             </div>
-            <span className="text-xs font-mono text-slate-500">
-              {payments.length} {payments.length === 1 ? 'record' : 'records'}
-            </span>
+
+            {/* Stacked Progress Bar */}
+            <div className="h-3 w-full bg-slate-950 rounded-full overflow-hidden flex">
+              {categoryCounts.insufficient_funds > 0 && (
+                <div
+                  style={{ width: `${(categoryCounts.insufficient_funds / totalFailed) * 100}%` }}
+                  className="bg-amber-500 h-full transition-all"
+                  title={`Insufficient Funds: ${categoryCounts.insufficient_funds}`}
+                />
+              )}
+              {categoryCounts.card_expired > 0 && (
+                <div
+                  style={{ width: `${(categoryCounts.card_expired / totalFailed) * 100}%` }}
+                  className="bg-rose-500 h-full transition-all"
+                  title={`Card Expired: ${categoryCounts.card_expired}`}
+                />
+              )}
+              {categoryCounts.payment_method_restricted > 0 && (
+                <div
+                  style={{ width: `${(categoryCounts.payment_method_restricted / totalFailed) * 100}%` }}
+                  className="bg-purple-500 h-full transition-all"
+                  title={`Method Restricted: ${categoryCounts.payment_method_restricted}`}
+                />
+              )}
+              {categoryCounts.network_glitch > 0 && (
+                <div
+                  style={{ width: `${(categoryCounts.network_glitch / totalFailed) * 100}%` }}
+                  className="bg-slate-400 h-full transition-all"
+                  title={`Network Glitch: ${categoryCounts.network_glitch}`}
+                />
+              )}
+              {categoryCounts.other > 0 && (
+                <div
+                  style={{ width: `${(categoryCounts.other / totalFailed) * 100}%` }}
+                  className="bg-indigo-500 h-full transition-all"
+                  title={`Other: ${categoryCounts.other}`}
+                />
+              )}
+            </div>
+
+            {/* Legend */}
+            <div className="flex flex-wrap gap-4 text-[11px] text-slate-400 pt-1">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Insufficient Funds ({categoryCounts.insufficient_funds})
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> Card Expired ({categoryCounts.card_expired})
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-purple-500" /> Method Restricted ({categoryCounts.payment_method_restricted})
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-400" /> Network Glitch ({categoryCounts.network_glitch})
+              </span>
+            </div>
+          </section>
+        )}
+
+        {/* Failed Payments Table Section */}
+        <section className="bg-slate-900/80 border border-slate-800/80 rounded-2xl shadow-xl overflow-hidden space-y-4 p-4 sm:p-6">
+          
+          {/* Table Toolbar: Search & Category Filter Tabs */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-2 border-b border-slate-800">
+            {/* Search Input */}
+            <div className="relative max-w-sm w-full">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search email, contact, or payment ID..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="flex flex-wrap items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800/80 text-xs">
+              {[
+                { key: 'all', label: 'All' },
+                { key: 'recovered', label: 'Recovered' },
+                { key: 'insufficient_funds', label: 'Insufficient Funds' },
+                { key: 'card_expired', label: 'Card Expired' },
+                { key: 'network_glitch', label: 'Glitch' },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveFilter(tab.key)}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
+                    activeFilter === tab.key
+                      ? 'bg-indigo-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {loading ? (
             /* Skeleton Loading Table */
-            <div className="p-6 space-y-4">
+            <div className="space-y-3 py-4">
               {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-12 bg-slate-800/50 rounded-xl animate-pulse w-full" />
+                <div key={i} className="h-14 bg-slate-800/50 rounded-xl animate-pulse w-full" />
               ))}
             </div>
-          ) : payments.length === 0 ? (
+          ) : filteredPayments.length === 0 ? (
             /* Empty State */
-            <div className="p-12 text-center space-y-4">
-              <div className="w-16 h-16 rounded-full bg-slate-800/80 text-slate-500 flex items-center justify-center mx-auto text-2xl">
-                📥
+            <div className="py-12 text-center space-y-4">
+              <div className="w-16 h-16 rounded-2xl bg-slate-800/80 text-slate-400 flex items-center justify-center mx-auto">
+                <ShieldAlert className="w-8 h-8" />
               </div>
               <div className="space-y-1">
-                <h3 className="text-base font-semibold text-slate-200">No Failed Payments Recorded Yet</h3>
+                <h3 className="text-base font-semibold text-slate-200">
+                  {payments.length === 0 ? 'No Failed Payments Recorded Yet' : 'No Records Match Filter'}
+                </h3>
                 <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                  When a payment failure webhook is received from Razorpay, it will automatically populate here.
+                  {payments.length === 0
+                    ? 'When a payment failure webhook is received from Razorpay, it will automatically populate here.'
+                    : 'Try clearing your search query or switching filter tabs.'}
                 </p>
               </div>
               <div className="pt-2">
@@ -359,7 +559,8 @@ export default function DashboardPage() {
                   href="/test-payment"
                   className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs rounded-xl shadow-lg transition-all"
                 >
-                  Go to Test Simulation Page →
+                  <span>Go to Test Simulation Page</span>
+                  <ArrowUpRight className="w-3.5 h-3.5" />
                 </Link>
               </div>
             </div>
@@ -369,15 +570,15 @@ export default function DashboardPage() {
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-950/60 text-slate-400 font-semibold border-b border-slate-800/80 uppercase tracking-wider text-[10px]">
                   <tr>
-                    <th scope="col" className="px-6 py-3.5">Customer</th>
-                    <th scope="col" className="px-6 py-3.5">Amount</th>
-                    <th scope="col" className="px-6 py-3.5">Failure Reason</th>
-                    <th scope="col" className="px-6 py-3.5">Status</th>
-                    <th scope="col" className="px-6 py-3.5 text-right">Action</th>
+                    <th scope="col" className="px-4 py-3.5">Customer</th>
+                    <th scope="col" className="px-4 py-3.5">Amount</th>
+                    <th scope="col" className="px-4 py-3.5">Failure Reason</th>
+                    <th scope="col" className="px-4 py-3.5">Status</th>
+                    <th scope="col" className="px-4 py-3.5 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {payments.map((row) => {
+                  {filteredPayments.map((row) => {
                     const categoryBadge = getCategoryBadge(row.failure_category);
                     const statusBadge = getStatusBadge(row);
                     const explanation = getFailureExplanation(row.failure_category);
@@ -388,7 +589,7 @@ export default function DashboardPage() {
                         className="hover:bg-slate-800/40 transition-colors group"
                       >
                         {/* Customer */}
-                        <td className="px-6 py-4 font-medium text-slate-200">
+                        <td className="px-4 py-4 font-medium text-slate-200">
                           <div className="space-y-0.5">
                             <div className="font-semibold text-slate-100">
                               {row.customer_email || row.customer_contact || 'N/A'}
@@ -405,12 +606,12 @@ export default function DashboardPage() {
                         </td>
 
                         {/* Amount */}
-                        <td className="px-6 py-4 font-mono font-semibold text-slate-100 text-sm">
+                        <td className="px-4 py-4 font-mono font-semibold text-slate-100 text-sm">
                           {formatCurrency(row.amount, row.currency)}
                         </td>
 
-                        {/* Failure Reason + Expandable Info Tooltip */}
-                        <td className="px-6 py-4">
+                        {/* Failure Reason + Tooltip */}
+                        <td className="px-4 py-4">
                           <div className="flex items-center gap-1.5 relative">
                             <span
                               className={`inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-medium border ${categoryBadge.className}`}
@@ -423,19 +624,7 @@ export default function DashboardPage() {
                                 className="text-slate-400 hover:text-indigo-400 transition-colors p-0.5 rounded focus:outline-none"
                                 aria-label="Why this failure strategy?"
                               >
-                                <svg
-                                  className="w-3.5 h-3.5"
-                                  fill="none"
-                                  viewBox="0 0 24 24"
-                                  stroke="currentColor"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth="2"
-                                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                                  />
-                                </svg>
+                                <Info className="w-3.5 h-3.5" />
                               </button>
                               {/* Tooltip Content */}
                               <div className="pointer-events-none opacity-0 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100 transition-all duration-200 absolute left-0 bottom-full mb-2 w-64 p-3 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl text-[11px] text-slate-200 z-30 leading-relaxed">
@@ -448,7 +637,7 @@ export default function DashboardPage() {
                         </td>
 
                         {/* Status */}
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-4">
                           <span
                             className={`inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-medium border ${statusBadge.className}`}
                           >
@@ -457,10 +646,10 @@ export default function DashboardPage() {
                         </td>
 
                         {/* Action */}
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-4 py-4 text-right">
                           {row.status === 'recovered' ? (
                             <span className="inline-flex items-center gap-1.5 text-emerald-400 font-semibold text-xs bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg">
-                              <span>✓</span> Paid
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Paid
                             </span>
                           ) : row.recovery_link ? (
                             <button
@@ -468,7 +657,7 @@ export default function DashboardPage() {
                               className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all cursor-pointer shadow-md shadow-indigo-600/20"
                             >
                               <span>Open Link</span>
-                              <span className="text-[10px]">↗</span>
+                              <ExternalLink className="w-3 h-3" />
                             </button>
                           ) : row.status === 'pending' ? (
                             <button
@@ -478,30 +667,11 @@ export default function DashboardPage() {
                             >
                               {generatingId === row.id ? (
                                 <>
-                                  <svg
-                                    className="animate-spin h-3.5 w-3.5 text-white"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                  >
-                                    <circle
-                                      className="opacity-25"
-                                      cx="12"
-                                      cy="12"
-                                      r="10"
-                                      stroke="currentColor"
-                                      strokeWidth="4"
-                                    ></circle>
-                                    <path
-                                      className="opacity-75"
-                                      fill="currentColor"
-                                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                    ></path>
-                                  </svg>
+                                  <Loader2 className="animate-spin h-3.5 w-3.5 text-white" />
                                   Generating...
                                 </>
                               ) : (
-                                'Generate Recovery Link'
+                                'Generate Link'
                               )}
                             </button>
                           ) : (
@@ -516,7 +686,17 @@ export default function DashboardPage() {
             </div>
           )}
         </section>
+
       </main>
+
+      {/* Manual Link Modal */}
+      <ManualLinkModal
+        isOpen={isManualModalOpen}
+        onClose={() => setIsManualModalOpen(false)}
+        onSuccess={() => {
+          fetchPayments(true);
+        }}
+      />
     </div>
   );
 }
