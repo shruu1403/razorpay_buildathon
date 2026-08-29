@@ -6,10 +6,12 @@ export interface FailureClassification {
 
 export function classifyFailure(
   errorCode: string = '',
-  errorReason: string = ''
+  errorReason: string = '',
+  errorSource: string = ''
 ): FailureClassification {
   const code = (errorCode || '').toLowerCase();
   const reason = (errorReason || '').toLowerCase();
+  const source = (errorSource || '').toLowerCase();
 
   // 1. Insufficient funds
   if (reason.includes('insufficient') || reason.includes('balance')) {
@@ -55,7 +57,34 @@ export function classifyFailure(
     };
   }
 
-  // 5. Default/unknown
+  // 5. Authentication failure (wrong OTP, 3DS cancelled)
+  if (reason.includes('authentication_failed') || reason.includes('wrong_otp')) {
+    return {
+      category: 'network_glitch',
+      retryStrategy: 'auto_retry_soon',
+      retryDelayHours: 1,
+    };
+  }
+
+  // 6. Card declined by issuer
+  if (reason.includes('card_declined') || reason.includes('declined')) {
+    return {
+      category: 'payment_method_restricted',
+      retryStrategy: 'request_update',
+      retryDelayHours: 0,
+    };
+  }
+
+  // 7. Generic gateway decline — transient, worth retrying
+  if (reason === 'payment_failed' && source === 'gateway') {
+    return {
+      category: 'network_glitch',
+      retryStrategy: 'auto_retry_soon',
+      retryDelayHours: 2,
+    };
+  }
+
+  // 8. Default/unknown
   return {
     category: 'other',
     retryStrategy: 'manual_review',

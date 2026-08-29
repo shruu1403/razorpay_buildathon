@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import Link from 'next/link';
 import Navbar from '@/components/Navbar';
 
@@ -23,7 +23,8 @@ import {
   Layers,
   ArrowUpRight,
   ShieldAlert,
-  Loader2
+  Loader2,
+  Calendar
 } from 'lucide-react';
 
 interface FailedPayment {
@@ -75,7 +76,7 @@ export default function DashboardPage() {
       }
     } catch (err) {
       console.error('[Dashboard] Unexpected error:', err);
-    } fontally: {
+    } finally {
       setLoading(false);
       setRefreshing(false);
     }
@@ -565,7 +566,7 @@ export default function DashboardPage() {
               </div>
             </div>
           ) : (
-            /* Data Table */
+            /* Data Table with date separators */
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-950/60 text-slate-400 font-semibold border-b border-slate-800/80 uppercase tracking-wider text-[10px]">
@@ -578,109 +579,159 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {filteredPayments.map((row) => {
-                    const categoryBadge = getCategoryBadge(row.failure_category);
-                    const statusBadge = getStatusBadge(row);
-                    const explanation = getFailureExplanation(row.failure_category);
+                  {(() => {
+                    let lastDateLabel = '';
 
-                    return (
-                      <tr
-                        key={row.id}
-                        className="hover:bg-slate-800/40 transition-colors group"
-                      >
-                        {/* Customer */}
-                        <td className="px-4 py-4 font-medium text-slate-200">
-                          <div className="space-y-0.5">
-                            <div className="font-semibold text-slate-100">
-                              {row.customer_email || row.customer_contact || 'N/A'}
-                            </div>
-                            {row.customer_contact && row.customer_email && (
-                              <div className="text-[11px] font-mono text-slate-400">
-                                {row.customer_contact}
-                              </div>
-                            )}
-                            <div className="text-[10px] text-slate-500 font-mono">
-                              ID: {row.razorpay_payment_id || row.id.substring(0, 8)}
-                            </div>
-                          </div>
-                        </td>
+                    const formatDateLabel = (iso: string) => {
+                      const d = new Date(iso);
+                      const now = new Date();
+                      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                      const yesterday = new Date(today);
+                      yesterday.setDate(today.getDate() - 1);
+                      const rowDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
-                        {/* Amount */}
-                        <td className="px-4 py-4 font-mono font-semibold text-slate-100 text-sm">
-                          {formatCurrency(row.amount, row.currency)}
-                        </td>
+                      if (rowDate.getTime() === today.getTime()) return 'Today';
+                      if (rowDate.getTime() === yesterday.getTime()) return 'Yesterday';
+                      return d.toLocaleDateString('en-IN', {
+                        weekday: 'short',
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      });
+                    };
 
-                        {/* Failure Reason + Tooltip */}
-                        <td className="px-4 py-4">
-                          <div className="flex items-center gap-1.5 relative">
-                            <span
-                              className={`inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-medium border ${categoryBadge.className}`}
-                            >
-                              {categoryBadge.label}
-                            </span>
-                            <div className="group/tooltip relative inline-block">
-                              <button
-                                type="button"
-                                className="text-slate-400 hover:text-indigo-400 transition-colors p-0.5 rounded focus:outline-none"
-                                aria-label="Why this failure strategy?"
-                              >
-                                <Info className="w-3.5 h-3.5" />
-                              </button>
-                              {/* Tooltip Content */}
-                              <div className="pointer-events-none opacity-0 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100 transition-all duration-200 absolute left-0 bottom-full mb-2 w-64 p-3 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl text-[11px] text-slate-200 z-30 leading-relaxed">
-                                <div className="font-semibold text-indigo-400 mb-0.5">Strategy Rationale</div>
-                                {explanation}
-                                <div className="absolute top-full left-3 border-4 border-transparent border-t-slate-900" />
-                              </div>
-                            </div>
-                          </div>
-                        </td>
+                    const formatTime = (iso: string) => {
+                      return new Date(iso).toLocaleTimeString('en-IN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true,
+                      });
+                    };
 
-                        {/* Status */}
-                        <td className="px-4 py-4">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-medium border ${statusBadge.className}`}
-                          >
-                            {statusBadge.label}
-                          </span>
-                        </td>
+                    return filteredPayments.map((row) => {
+                      const categoryBadge = getCategoryBadge(row.failure_category);
+                      const statusBadge = getStatusBadge(row);
+                      const explanation = getFailureExplanation(row.failure_category);
+                      const dateLabel = formatDateLabel(row.created_at);
+                      const showDateHeader = dateLabel !== lastDateLabel;
+                      lastDateLabel = dateLabel;
 
-                        {/* Action */}
-                        <td className="px-4 py-4 text-right">
-                          {row.status === 'recovered' ? (
-                            <span className="inline-flex items-center gap-1.5 text-emerald-400 font-semibold text-xs bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Paid
-                            </span>
-                          ) : row.recovery_link ? (
-                            <button
-                              onClick={() => window.open(row.recovery_link!, '_blank')}
-                              className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all cursor-pointer shadow-md shadow-indigo-600/20"
-                            >
-                              <span>Open Link</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </button>
-                          ) : row.status === 'pending' ? (
-                            <button
-                              onClick={() => handleGenerateLink(row.id)}
-                              disabled={generatingId === row.id}
-                              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-950 disabled:opacity-50 text-white text-xs font-semibold transition-all cursor-pointer"
-                            >
-                              {generatingId === row.id ? (
-                                <>
-                                  <Loader2 className="animate-spin h-3.5 w-3.5 text-white" />
-                                  Generating...
-                                </>
-                              ) : (
-                                'Generate Link'
-                              )}
-                            </button>
-                          ) : (
-                            <span className="text-slate-500 text-xs">—</span>
+                      return (
+                        <Fragment key={row.id}>
+                          {showDateHeader && (
+                            <tr key={`date-${dateLabel}`}>
+                              <td colSpan={5} className="px-4 py-2.5 bg-slate-950/80">
+                                <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-300">
+                                  <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+                                  <span>{dateLabel}</span>
+                                </div>
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          <tr
+                            key={row.id}
+                            className="hover:bg-slate-800/40 transition-colors group"
+                          >
+                            {/* Customer */}
+                            <td className="px-4 py-4 font-medium text-slate-200">
+                              <div className="space-y-0.5">
+                                <div className="font-semibold text-slate-100">
+                                  {row.customer_email || row.customer_contact || 'N/A'}
+                                </div>
+                                {row.customer_contact && row.customer_email && (
+                                  <div className="text-[11px] font-mono text-slate-400">
+                                    {row.customer_contact}
+                                  </div>
+                                )}
+                                <div className="text-[10px] text-slate-500 font-mono">
+                                  ID: {row.razorpay_payment_id || row.id.substring(0, 8)}
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Amount */}
+                            <td className="px-4 py-4 font-mono font-semibold text-slate-100 text-sm">
+                              {formatCurrency(row.amount, row.currency)}
+                            </td>
+
+                            {/* Failure Reason + Tooltip */}
+                            <td className="px-4 py-4">
+                              <div className="flex items-center gap-1.5 relative">
+                                <span
+                                  className={`inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-medium border ${categoryBadge.className}`}
+                                >
+                                  {categoryBadge.label}
+                                </span>
+                                <div className="group/tooltip relative inline-block">
+                                  <button
+                                    type="button"
+                                    className="text-slate-400 hover:text-indigo-400 transition-colors p-0.5 rounded focus:outline-none"
+                                    aria-label="Why this failure strategy?"
+                                  >
+                                    <Info className="w-3.5 h-3.5" />
+                                  </button>
+                                  {/* Tooltip Content */}
+                                  <div className="pointer-events-none opacity-0 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100 transition-all duration-200 absolute left-0 bottom-full mb-2 w-64 p-3 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl text-[11px] text-slate-200 z-30 leading-relaxed">
+                                    <div className="font-semibold text-indigo-400 mb-0.5">Strategy Rationale</div>
+                                    {explanation}
+                                    <div className="absolute top-full left-3 border-4 border-transparent border-t-slate-900" />
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Status */}
+                            <td className="px-4 py-4">
+                              <span
+                                className={`inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-medium border ${statusBadge.className}`}
+                              >
+                                {statusBadge.label}
+                              </span>
+                            </td>
+
+                            {/* Action */}
+                            <td className="px-4 py-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <span className="text-[10px] text-slate-500 font-mono">
+                                  {formatTime(row.created_at)}
+                                </span>
+                                {row.status === 'recovered' ? (
+                                  <span className="inline-flex items-center gap-1.5 text-emerald-400 font-semibold text-xs bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg">
+                                    <CheckCircle2 className="w-3.5 h-3.5" /> Paid
+                                  </span>
+                                ) : row.recovery_link ? (
+                                  <button
+                                    onClick={() => window.open(row.recovery_link!, '_blank')}
+                                    className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all cursor-pointer shadow-md shadow-indigo-600/20"
+                                  >
+                                    <span>Open Link</span>
+                                    <ExternalLink className="w-3 h-3" />
+                                  </button>
+                                ) : row.status === 'pending' ? (
+                                  <button
+                                    onClick={() => handleGenerateLink(row.id)}
+                                    disabled={generatingId === row.id}
+                                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-950 disabled:opacity-50 text-white text-xs font-semibold transition-all cursor-pointer"
+                                  >
+                                    {generatingId === row.id ? (
+                                      <>
+                                        <Loader2 className="animate-spin h-3.5 w-3.5 text-white" />
+                                        Generating...
+                                      </>
+                                    ) : (
+                                      'Generate Link'
+                                    )}
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-500 text-xs">—</span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        </Fragment>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>

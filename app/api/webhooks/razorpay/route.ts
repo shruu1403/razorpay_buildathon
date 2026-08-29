@@ -127,7 +127,8 @@ export async function POST(request: NextRequest) {
       // 4b. Classify failure and determine retry strategy & initial status
       const { category, retryStrategy, retryDelayHours } = classifyFailure(
         error_code || '',
-        error_reason || ''
+        error_reason || '',
+        error_source || ''
       );
 
       const next_retry_at =

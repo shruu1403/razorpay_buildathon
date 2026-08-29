@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import Razorpay from 'razorpay';
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -14,18 +14,29 @@ export async function POST() {
       );
     }
 
+    // Read amount from request body — frontend sends amount in paise
+    let amountPaise = 49900; // default ₹499
+    try {
+      const body = await request.json();
+      if (body.amount && typeof body.amount === 'number' && body.amount > 0) {
+        amountPaise = body.amount;
+      }
+    } catch {
+      // If body parsing fails, use the default amount
+    }
+
     const razorpay = new Razorpay({
       key_id: keyId,
       key_secret: keySecret,
     });
 
     const options = {
-      amount: 49900, // ₹499 in paise
+      amount: amountPaise,
       currency: 'INR',
       receipt: `receipt_${Date.now()}`,
     };
 
-    console.log('[Create Test Order] Creating order with amount ₹499...');
+    console.log(`[Create Test Order] Creating order with amount ₹${amountPaise / 100}...`);
     const order = await razorpay.orders.create(options);
     console.log('[Create Test Order] Order created successfully! ID:', order.id);
 
