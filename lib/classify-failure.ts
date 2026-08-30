@@ -60,7 +60,7 @@ export function classifyFailure(
   // 5. Authentication failure (wrong OTP, 3DS cancelled)
   if (reason.includes('authentication_failed') || reason.includes('wrong_otp')) {
     return {
-      category: 'network_glitch',
+      category: 'authentication_failed',
       retryStrategy: 'auto_retry_soon',
       retryDelayHours: 1,
     };
@@ -69,14 +69,14 @@ export function classifyFailure(
   // 6. Card declined by issuer
   if (reason.includes('card_declined') || reason.includes('declined')) {
     return {
-      category: 'payment_method_restricted',
+      category: 'card_declined',
       retryStrategy: 'request_update',
       retryDelayHours: 0,
     };
   }
 
-  // 7. Generic gateway decline — transient, worth retrying
-  if (reason === 'payment_failed' && source === 'gateway') {
+  // 7. Generic gateway/bank decline — transient, worth retrying
+  if (reason === 'payment_failed' && (source === 'gateway' || source === 'bank')) {
     return {
       category: 'network_glitch',
       retryStrategy: 'auto_retry_soon',

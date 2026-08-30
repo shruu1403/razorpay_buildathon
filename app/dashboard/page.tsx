@@ -170,6 +170,8 @@ export default function DashboardPage() {
       card_expired: 0,
       payment_method_restricted: 0,
       network_glitch: 0,
+      authentication_failed: 0,
+      card_declined: 0,
       other: 0,
     };
     payments.forEach((p) => {
@@ -194,38 +196,38 @@ export default function DashboardPage() {
 
   const getCategoryBadge = (category?: string) => {
     const cat = (category || '').toLowerCase();
-    if (cat === 'card_expired') {
-      return {
-        label: 'Card Expired',
-        className: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
-      };
-    }
-    if (cat === 'payment_method_restricted') {
-      return {
-        label: 'Method Restricted',
-        className: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-      };
-    }
-    if (cat === 'insufficient_funds') {
-      return {
+    const map: Record<string, { label: string; className: string }> = {
+      insufficient_funds: {
         label: 'Insufficient Funds',
-        className: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-      };
-    }
-    if (cat === 'network_glitch') {
-      return {
+        className: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+      },
+      card_expired: {
+        label: 'Card Expired',
+        className: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+      },
+      payment_method_restricted: {
+        label: 'Method Restricted',
+        className: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+      },
+      network_glitch: {
         label: 'Network Glitch',
-        className: 'bg-slate-500/10 text-slate-300 border-slate-700/50',
-      };
-    }
-    if (cat === 'manual_dispatch') {
-      return {
+        className: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+      },
+      authentication_failed: {
+        label: 'Auth Failed',
+        className: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+      },
+      card_declined: {
+        label: 'Card Declined',
+        className: 'bg-pink-500/15 text-pink-300 border-pink-500/30',
+      },
+      manual_dispatch: {
         label: 'Manual Dispatch',
-        className: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
-      };
-    }
-    return {
-      label: category ? category.replace('_', ' ') : 'Other',
+        className: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
+      },
+    };
+    return map[cat] || {
+      label: category ? category.replaceAll('_', ' ') : 'Other',
       className: 'bg-slate-500/10 text-slate-400 border-slate-800',
     };
   };
@@ -241,6 +243,10 @@ export default function DashboardPage() {
         return 'Payment method blocked — requesting customer switch methods immediately';
       case 'network_glitch':
         return 'Temporary gateway issue — retrying automatically within hours';
+      case 'authentication_failed':
+        return 'Customer failed OTP or cancelled 3D-Secure — sending recovery link to retry';
+      case 'card_declined':
+        return 'Issuing bank declined the card — requesting customer to try a different card';
       case 'manual_dispatch':
         return 'Manually created recovery link by merchant admin';
       default:
@@ -257,9 +263,19 @@ export default function DashboardPage() {
       };
     }
     if (s === 'retry_scheduled') {
+      // If a recovery link was actually generated, show "Link Sent"
+      if (row.recovery_link) {
+        return {
+          label: 'Link Sent',
+          className: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+        };
+      }
+      // Otherwise it's a scheduled auto-retry — show the delay
+      const strat = (row.retry_strategy || '').toLowerCase();
+      const delayLabel = strat === 'auto_retry_soon' ? '2hr' : '72hr';
       return {
-        label: 'Link Sent',
-        className: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+        label: `Auto-Retry (${delayLabel})`,
+        className: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
       };
     }
     const strat = (row.retry_strategy || '').toLowerCase();
@@ -460,8 +476,22 @@ export default function DashboardPage() {
               {categoryCounts.network_glitch > 0 && (
                 <div
                   style={{ width: `${(categoryCounts.network_glitch / totalFailed) * 100}%` }}
-                  className="bg-slate-400 h-full transition-all"
+                  className="bg-sky-500 h-full transition-all"
                   title={`Network Glitch: ${categoryCounts.network_glitch}`}
+                />
+              )}
+              {categoryCounts.authentication_failed > 0 && (
+                <div
+                  style={{ width: `${(categoryCounts.authentication_failed / totalFailed) * 100}%` }}
+                  className="bg-orange-500 h-full transition-all"
+                  title={`Auth Failed: ${categoryCounts.authentication_failed}`}
+                />
+              )}
+              {categoryCounts.card_declined > 0 && (
+                <div
+                  style={{ width: `${(categoryCounts.card_declined / totalFailed) * 100}%` }}
+                  className="bg-pink-500 h-full transition-all"
+                  title={`Card Declined: ${categoryCounts.card_declined}`}
                 />
               )}
               {categoryCounts.other > 0 && (
@@ -485,7 +515,13 @@ export default function DashboardPage() {
                 <span className="w-2.5 h-2.5 rounded-full bg-purple-500" /> Method Restricted ({categoryCounts.payment_method_restricted})
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-slate-400" /> Network Glitch ({categoryCounts.network_glitch})
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-500" /> Network Glitch ({categoryCounts.network_glitch})
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-orange-500" /> Auth Failed ({categoryCounts.authentication_failed})
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-pink-500" /> Card Declined ({categoryCounts.card_declined})
               </span>
             </div>
           </section>
@@ -501,7 +537,7 @@ export default function DashboardPage() {
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search email, contact, or payment ID..."
+                placeholder="Search email or contact..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
@@ -513,8 +549,10 @@ export default function DashboardPage() {
               {[
                 { key: 'all', label: 'All' },
                 { key: 'recovered', label: 'Recovered' },
-                { key: 'insufficient_funds', label: 'Insufficient Funds' },
-                { key: 'card_expired', label: 'Card Expired' },
+                { key: 'insufficient_funds', label: 'Low Balance' },
+                { key: 'card_expired', label: 'Expired' },
+                { key: 'card_declined', label: 'Declined' },
+                { key: 'authentication_failed', label: 'Auth Failed' },
                 { key: 'network_glitch', label: 'Glitch' },
               ].map((tab) => (
                 <button
@@ -643,9 +681,9 @@ export default function DashboardPage() {
                                     {row.customer_contact}
                                   </div>
                                 )}
-                                <div className="text-[10px] text-slate-500 font-mono">
+                                {/* <div className="text-[10px] text-slate-500 font-mono">
                                   ID: {row.razorpay_payment_id || row.id.substring(0, 8)}
-                                </div>
+                                </div> */}
                               </div>
                             </td>
 
@@ -707,7 +745,7 @@ export default function DashboardPage() {
                                     <span>Open Link</span>
                                     <ExternalLink className="w-3 h-3" />
                                   </button>
-                                ) : row.status === 'pending' ? (
+                                ) : row.status !== 'recovered' ? (
                                   <button
                                     onClick={() => handleGenerateLink(row.id)}
                                     disabled={generatingId === row.id}
