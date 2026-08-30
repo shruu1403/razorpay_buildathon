@@ -136,9 +136,7 @@ export async function POST(request: NextRequest) {
           ? new Date(Date.now() + retryDelayHours * 60 * 60 * 1000).toISOString()
           : null;
 
-      const initialStatus = retryStrategy.startsWith('auto_retry')
-        ? 'retry_scheduled'
-        : 'pending';
+      const initialStatus = 'pending';
 
       console.log('[Razorpay Webhook] Step 4b: Classified failure:', {
         failure_category: category,

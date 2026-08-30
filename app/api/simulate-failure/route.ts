@@ -93,9 +93,7 @@ export async function POST(request: NextRequest) {
         ? new Date(Date.now() + retryDelayHours * 60 * 60 * 1000).toISOString()
         : null;
 
-    const initialStatus = retryStrategy.startsWith('auto_retry')
-      ? 'retry_scheduled'
-      : 'pending';
+    const initialStatus = 'pending';
 
     // Generate a fake Razorpay-style payment/order ID for realism
     const fakePaymentId = `pay_sim${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
