@@ -4,7 +4,7 @@
 
 > Indian subscription businesses lose 8–15% of recurring revenue every month to failed payments — not from churn, from mishandled failures. For a business doing ₹10L/month, that's up to **₹1.5L vanishing every month**, for no real reason. ReviveAI gets it back.
 
-<img width="1895" height="852" alt="image" src="https://github.com/user-attachments/assets/59de4463-4295-4526-92cc-5134af0d033c" />
+<img width="1896" height="857" alt="image" src="https://github.com/user-attachments/assets/87492a82-8b18-4024-9815-a12354c45fb3" />
 
 🔗 **Live Demo:** [razorpay-buildathon-inky.vercel.app](https://razorpay-buildathon-inky.vercel.app)
 🎥 **5-min Pitch Video:** [https://drive.google.com/file/d/1kZqvAb0S92ljmPlXqjUE30lLAZhcQtta/view?usp=sharing]
